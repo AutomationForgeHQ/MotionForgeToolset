@@ -1,7 +1,7 @@
 {
   "FileVersion": 3,
   "Version": 2,
-  "VersionName": "0.1.0\r",
+  "VersionName": "0.1.0",
   "FriendlyName": "MotionForge Toolset",
   "Description": "Exposes MotionForge's pipeline as native Model Context Protocol tools, so an agent can author motion definitions, generate, review, download and import without a human driving the editor. Adapter only - it holds no pipeline logic and can be removed without affecting MotionForge.",
   "Category": "Experimental",
