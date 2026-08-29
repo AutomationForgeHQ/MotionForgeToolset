@@ -84,6 +84,20 @@ TArray<FMotionDefinitionStatus> UMotionForgeToolset::GetMotionStatus(const TArra
 	return Forge ? Forge->GetStatus(AssetPaths) : TArray<FMotionDefinitionStatus>();
 }
 
+FMotionReadiness UMotionForgeToolset::CheckMotionReadiness(const FString& AssetPath)
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	return Forge ? Forge->CheckReadiness(AssetPath) : FMotionReadiness();
+}
+
+void UMotionForgeToolset::RefreshProviderState(FName ProviderId)
+{
+	if (UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem())
+	{
+		Forge->RefreshProviderState(ProviderId);
+	}
+}
+
 FMotionBatchStatus UMotionForgeToolset::GetBatchStatus(const FString& BatchId)
 {
 	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
@@ -428,6 +442,21 @@ FString UMotionForgeToolset::CreatePromptSequence(
 	}
 
 	return Created;
+}
+
+void UMotionForgeToolset::RefreshPromptSequenceTake(const FString& AssetPath)
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	if (!Forge)
+	{
+		return;
+	}
+
+	FString Error;
+	if (!Forge->RefreshPromptSequenceTake(AssetPath, Error))
+	{
+		MotionForgeToolsetPrivate::Fail(Error);
+	}
 }
 
 FMotionPromptRead UMotionForgeToolset::ReadPromptBeats(const FString& AssetPath)

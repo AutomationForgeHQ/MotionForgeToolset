@@ -42,7 +42,7 @@ class MOTIONFORGETOOLSET_API UMotionForgeToolset : public UToolsetDefinition
 
 public:
 
-	virtual FString GetToolsetVersion() const override { return TEXT("0.2"); }
+	virtual FString GetToolsetVersion() const override { return TEXT("0.1.1"); }
 
 	// ---------------------------------------------------------------------------------------------
 	// Discovery
@@ -112,11 +112,53 @@ public:
 	/**
 	 * Report status, generated takes and errors for motion definitions.
 	 *
+	 * Three fields repay reading beyond the obvious ones:
+	 *
+	 * - **Imported Sequence Missing** is true when a definition still says Ready and the animation it
+	 *   produced is no longer in the project - deleted, moved, or never saved. The status is honest
+	 *   about what the pipeline did and cannot know the result was thrown away, so this is the only
+	 *   thing that catches it. Importing the chosen take again replaces the clip.
+	 * - **Provider Inherited** is true when the definition names no provider and is following the
+	 *   project default. Changing that setting moves every inherited definition with it, which is how
+	 *   a library prepared for one provider quietly generates on another.
+	 * - **Variants** is what a generation would produce, and therefore what it would cost.
+	 *
 	 * @param AssetPaths Definitions to report on. Leave empty for every definition.
 	 * @return One entry per definition, including the take ids Select Take accepts.
 	 */
 	UFUNCTION(meta = (AICallable), Category = "MotionForge|Discovery")
 	static TArray<FMotionDefinitionStatus> GetMotionStatus(const TArray<FString>& AssetPaths);
+
+	/**
+	 * Report whether a definition could be generated right now, and what is missing when it cannot.
+	 *
+	 * The same six checks submission makes - provider, credential, provider ready, character,
+	 * character usable, prompt - asked **before anything is spent**. Worth calling before Generate
+	 * Motions on a metered provider: submitting a definition with no character costs a round trip and
+	 * writes an error into the asset, and finding out then is the wrong moment.
+	 *
+	 * Blocker says which kind of problem it is, so the right next action can be taken rather than
+	 * guessed: a missing credential is a human's job, a provider that is not ready may only need its
+	 * runner started, and a missing prompt is yours to write.
+	 *
+	 * Cheap - no network call, no generation.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Discovery")
+	static FMotionReadiness CheckMotionReadiness(const FString& AssetPath);
+
+	/**
+	 * Ask a provider to re-read its own readiness, so a later capability check is current.
+	 *
+	 * Capabilities are cached. After anything that changes whether a provider can work - starting a
+	 * local runner, renting or releasing a GPU, storing a key - call this before trusting Get
+	 * Provider Capabilities or Check Motion Readiness, or they will report the state from before.
+	 *
+	 * Providers with constant capabilities complete immediately and change nothing.
+	 *
+	 * @param ProviderId A name from List Providers. Leave empty for the default provider.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Discovery")
+	static void RefreshProviderState(FName ProviderId);
 
 	/**
 	 * Report how far a generation batch has got, given the id returned when it was started.
@@ -277,6 +319,11 @@ public:
 	 * decision and not a free knob. Call Estimate Generation Cost first and get the user's agreement
 	 * on the number. On a subscription the reverse holds and variants are free.
 	 *
+	 * **Variants defaults to one**, deliberately, so omitting it cannot charge a multiple nobody asked
+	 * for. Raise it where Get Provider Capabilities reports the provider is not metered - generation
+	 * is free there, more takes is strictly better, and one take is the wrong default for a local
+	 * runner. Raise it on a metered provider only with the user's agreement to the priced number.
+	 *
 	 * @param Definitions What to author. Prompt and AssetName are the only fields worth setting by
 	 *        hand; the rest fall back to the plugin's configured defaults when left empty.
 	 * @param Mode Human In The Loop stops after generating so takes can be reviewed. Automatic runs
@@ -323,6 +370,20 @@ public:
 	 */
 	UFUNCTION(meta = (AICallable), Category = "MotionForge|Prompt")
 	static FString CreatePromptSequence(const FString& AssetPath, const FString& SequenceAssetPath);
+
+	/**
+	 * Put the definition's imported animation on its prompt sequence's animation row.
+	 *
+	 * The beats above and the clip they produced below, on adjacent rows - which is the whole reason
+	 * to look at a prompt on a timeline rather than in a text field. Creating a sequence already does
+	 * this; use this for one that exists, whose row is empty because the sequence was built before
+	 * the clip was imported, or stale because a different take has been chosen since.
+	 *
+	 * Costs nothing and generates nothing. Idempotent - the row is replaced, never appended to.
+	 * Succeeds quietly when there is no sequence or nothing imported yet; neither is a fault.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Prompt")
+	static void RefreshPromptSequenceTake(const FString& AssetPath);
 
 	/**
 	 * Report what a motion definition will actually be generated from: its beats, how long each one
