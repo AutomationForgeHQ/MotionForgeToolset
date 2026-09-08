@@ -1,17 +1,18 @@
 # MotionForge Toolset
 
-Exposes [MotionForge](../MotionForge/README.md) as native Model Context Protocol tools, so an agent
+Exposes [MotionForge](https://github.com/AutomationForgeHQ/MotionForge) as native Model Context Protocol tools, so an agent
 can author motion definitions, generate, review, download and import without a human driving the
 editor.
 
-**Status: 0.3 — verified live, whole surface exercised.** The toolset registers as
+**Status: 0.2 — verified live on the documented subset below.** The toolset registers as
 `MotionForgeToolset.MotionForgeToolset` and `UMotionForgeSkill` is listed by
 `AgentSkillToolset.ListSkills`. Connection test, character upload and pairing, generation, polling,
 download and import have all been driven through these tools against a live Uthana account, producing
 an animation now in use in game.
 
-The retarget path is the one thing still unexercised — it engages only for a character you did not
-upload, and is not needed when you did.
+The retarget path, output-root configuration, cost estimation and the prompt-sequence tools are still
+unexercised end to end — the path above is what has actually been driven live. Retargeting itself
+engages only for a character you did not upload, and is not needed when you did.
 
 ---
 
@@ -67,19 +68,65 @@ readable through `GetMotionStatus`, so discovery needs no new tool.
 
 ## Tools
 
+All 28, grouped the way their `Category` metadata groups them in the MCP client.
+
+**Discovery**
+
 | Tool | Returns | |
 |---|---|---|
 | `ListMotionDefinitions` | `TArray<FString>` | Filter by any set of statuses |
+| `ReportMotionProvenance` | `TArray<FMotionProvenanceRow>` | Provider, model, runner and frame data per clip — read `bLooksMisRated` first |
 | `GetMotionStatus` | `TArray<FMotionDefinitionStatus>` | Status, takes and errors per definition |
+| `CheckMotionReadiness` | `FMotionReadiness` | Would this generate right now, and what's missing if not — cheap, no network call |
+| `RefreshProviderState` | — | Force a provider to re-read its own readiness before trusting a cached capability check |
 | `GetBatchStatus` | `FMotionBatchStatus` | Progress of a running batch |
 | `ListProviders` | `TArray<FName>` | Providers compiled into this project |
+| `GetProviderCapabilities` | `FMotionProviderCaps` | Frame rate, clip limits, billing and seed support per provider |
 | `GetCredentialStatus` | `FMotionCredentialInfo` | Whether a key exists — never its value |
 | `TestProviderConnection` | **async** string | One cheap authenticated call; costs nothing |
+
+**Output**
+
+| Tool | Returns | |
+|---|---|---|
+| `GetMotionOutputPaths` | `FMotionOutputPaths` | Where the pipeline writes — the configured root and every folder derived from it |
+| `SetMotionOutputRoot` | `FMotionOutputPaths` | Point the pipeline at a different content root. Moves nothing already written |
+
+**Characters**
+
+| Tool | Returns | |
+|---|---|---|
 | `ListProviderCharacters` | **async** `TArray<FMotionRemoteCharacter>` | What the account already holds |
 | `UploadCharacterToProvider` | **async** `FMotionCharacterUpload` | Export + upload + pair, in one call |
+| `ImportProviderCharacterRig` | **async** string | Fetch the paired, provider-normalised rig back into the project for retargeting |
+
+**Cost**
+
+| Tool | Returns | |
+|---|---|---|
+| `EstimateGenerationCost` | `FMotionCostEstimate` | Price a set of definitions before any of them exist |
 | `EstimateDownloadCost` | `FMotionCostEstimate` | Seconds that would be fetched |
+
+**Authoring**
+
+| Tool | Returns | |
+|---|---|---|
 | `CreateAndGenerateMotions` | `FMotionBatchSubmission` | Author a library and start it |
 | `UpdateMotionDefinition` | — | Reword a prompt without losing takes |
+
+**Prompt — the prompt on a timeline**
+
+| Tool | Returns | |
+|---|---|---|
+| `CreatePromptSequence` | `FString` | Lay a prompt out in a Level Sequence, one section per beat |
+| `RefreshPromptSequenceTake` | — | Put the imported animation onto the sequence's animation row |
+| `ReadPromptBeats` | `FMotionPromptRead` | What will actually be generated — beats, durations, and problems with them |
+| `BakePromptBeatsIntoDefinition` | — | Copy the sequence's beats back onto the definition itself, as insurance |
+
+**Pipeline**
+
+| Tool | Returns | |
+|---|---|---|
 | `GenerateMotions` | **async** status | Generate, wait, stop at review |
 | `SelectTake` | — | Choose a take by motion id |
 | `DownloadAndImportSelected` | **async** status | Fetch, normalise, import |

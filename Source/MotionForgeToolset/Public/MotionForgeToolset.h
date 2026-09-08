@@ -42,7 +42,7 @@ class MOTIONFORGETOOLSET_API UMotionForgeToolset : public UToolsetDefinition
 
 public:
 
-	virtual FString GetToolsetVersion() const override { return TEXT("0.1.1"); }
+	virtual FString GetToolsetVersion() const override { return TEXT("0.2.1"); }
 
 	// ---------------------------------------------------------------------------------------------
 	// Discovery
