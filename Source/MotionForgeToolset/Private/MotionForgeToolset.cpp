@@ -7,8 +7,11 @@
 #include "IMotionProvider.h"
 
 #include "Containers/Ticker.h"
+#include "Engine/Engine.h"
+#include "HAL/IConsoleManager.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "ToolsetRegistry/ToolCallAsyncResultString.h"
+#include "Interfaces/IPluginManager.h"
 
 namespace MotionForgeToolsetPrivate
 {
@@ -142,19 +145,9 @@ FMotionCredentialInfo UMotionForgeToolset::GetCredentialStatus(FName ProviderId)
 		return Info;
 	}
 
-	// An empty name means "the one you would use anyway", which is the common case and saves a round
-	// trip through List Providers.
-	FName Provider = ProviderId;
-	if (Provider.IsNone())
-	{
-		const TArray<FName> Providers = Forge->GetProviderIds();
-		if (Providers.Num() == 0)
-		{
-			MotionForgeToolsetPrivate::Fail(TEXT("This project has no motion providers compiled in."));
-			return Info;
-		}
-		Provider = Providers[0];
-	}
+	// An empty name means "the one you would use anyway" - the project's default, resolved the one way
+	// everything else resolves it, not the first provider alphabetically.
+	const FName Provider = ProviderId;
 
 	if (!Forge->GetCredentialInfo(Provider, Info))
 	{
@@ -183,18 +176,7 @@ UToolCallAsyncResultString* UMotionForgeToolset::TestProviderConnection(FName Pr
 		return Result;
 	}
 
-	FName Provider = ProviderId;
-	if (Provider.IsNone())
-	{
-		const TArray<FName> Providers = Forge->GetProviderIds();
-		if (Providers.Num() == 0)
-		{
-			Result->SetError(TEXT("This project has no motion providers compiled in."));
-			Result->RemoveFromRoot();
-			return Result;
-		}
-		Provider = Providers[0];
-	}
+	const FName Provider = ProviderId;
 
 	TSharedPtr<IMotionProvider> Impl = Forge->FindProvider(Provider);
 	if (!Impl.IsValid())
@@ -410,12 +392,128 @@ void UMotionForgeToolset::UpdateMotionDefinition(const FString& AssetPath, const
 		return;
 	}
 
-	if (!Forge->UpdateMotionDef(AssetPath, Definition))
+	TArray<FString> Problems;
+	if (!Forge->UpdateMotionDefChecked(AssetPath, Definition, Problems))
 	{
 		MotionForgeToolsetPrivate::Fail(FString::Printf(
 			TEXT("No motion definition at '%s'. Call List Motion Definitions for the valid paths."),
 			*AssetPath));
+		return;
 	}
+
+	// Everything else in the spec was applied; say exactly what was not, so it can be corrected.
+	if (Problems.Num() > 0)
+	{
+		MotionForgeToolsetPrivate::Fail(FString::Printf(
+			TEXT("Updated, except: %s Call List Pipeline Options for the valid keys and values."),
+			*FString::Join(Problems, TEXT(" "))));
+	}
+}
+
+FString UMotionForgeToolset::CreateMotionDefinition(const FMotionDefSpec& Definition)
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	if (!Forge)
+	{
+		return FString();
+	}
+
+	TArray<FString> Problems;
+	const FString Path = Forge->CreateMotionDefChecked(Definition, Problems);
+
+	if (Path.IsEmpty())
+	{
+		MotionForgeToolsetPrivate::Fail(TEXT("The definition could not be created. The Output Log says why."));
+		return Path;
+	}
+
+	if (Problems.Num() > 0)
+	{
+		MotionForgeToolsetPrivate::Fail(FString::Printf(
+			TEXT("Created %s, except: %s Call List Pipeline Options for the valid keys and values."),
+			*Path, *FString::Join(Problems, TEXT(" "))));
+	}
+
+	return Path;
+}
+
+FMotionResolvedRequest UMotionForgeToolset::PreviewMotionRequest(const FString& AssetPath)
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	return Forge ? Forge->ResolveRequest(AssetPath) : FMotionResolvedRequest();
+}
+
+FString UMotionForgeToolset::SetMotionProvider(const FString& AssetPath, FName ProviderId)
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	if (!Forge)
+	{
+		return FString();
+	}
+
+	if (!ProviderId.IsNone() && !Forge->FindProvider(ProviderId).IsValid())
+	{
+		MotionForgeToolsetPrivate::Fail(FString::Printf(
+			TEXT("No provider named '%s'. Call List Providers for the valid names."), *ProviderId.ToString()));
+		return FString();
+	}
+
+	return Forge->SetDefinitionProvider(AssetPath, ProviderId);
+}
+
+TArray<FMotionPipelineOption> UMotionForgeToolset::ListPipelineOptions(const FString& AssetPath, FName ProviderId)
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	return Forge ? Forge->GetPipelineOptions(AssetPath, ProviderId) : TArray<FMotionPipelineOption>();
+}
+
+void UMotionForgeToolset::SetMotionPipelineOption(const FString& AssetPath, const FString& Key, const FString& Value)
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	if (!Forge)
+	{
+		return;
+	}
+
+	FString Error;
+	if (!Forge->SetPipelineOption(AssetPath, Key, Value, Error))
+	{
+		MotionForgeToolsetPrivate::Fail(Error);
+	}
+}
+
+TArray<FString> UMotionForgeToolset::FindCharactersForProvider(FName ProviderId)
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	return Forge ? Forge->FindCharactersFor(ProviderId) : TArray<FString>();
+}
+
+TArray<FMotionSetupStepInfo> UMotionForgeToolset::GetProviderSetupSteps(FName ProviderId)
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	return Forge ? Forge->GetSetupSteps(ProviderId) : TArray<FMotionSetupStepInfo>();
+}
+
+void UMotionForgeToolset::OpenMotionForgeWindow(bool GetStarted)
+{
+	// Through the editor module's own console command, so this module needs no editor-UI dependency
+	// and the page is chosen the one way the menu chooses it.
+	const TCHAR* Command = GetStarted ? TEXT("MotionForge.GetStarted") : TEXT("MotionForge.Library");
+
+	if (!IConsoleManager::Get().FindConsoleObject(Command) || !GEngine)
+	{
+		MotionForgeToolsetPrivate::Fail(TEXT("The MotionForge window is not available: MotionForgeEditor is not loaded. "
+			"This only works in the editor."));
+		return;
+	}
+
+	GEngine->Exec(nullptr, Command);
+}
+
+int32 UMotionForgeToolset::MigrateMotionDefinitions()
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	return Forge ? Forge->MigrateDefinitions() : 0;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -693,4 +791,63 @@ void UMotionForgeToolset::CancelBatch(const FString& BatchId)
 		MotionForgeToolsetPrivate::Fail(FString::Printf(
 			TEXT("Batch '%s' is not being tracked, so there is nothing to stop waiting on."), *BatchId));
 	}
+}
+
+void UMotionForgeToolset::CancelMotionDefinition(const FString& AssetPath)
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	if (Forge && !Forge->CancelDefinition(AssetPath))
+	{
+		MotionForgeToolsetPrivate::Fail(FString::Printf(
+			TEXT("'%s' is not generating, so there is nothing to cancel. Downloading and importing cannot be "
+				 "interrupted part way; Get Motion Activity shows what is running."), *AssetPath));
+	}
+}
+
+UToolCallAsyncResultMotionStatus* UMotionForgeToolset::ChooseAndImportTake(const FString& AssetPath, const FString& MotionId)
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	if (!Forge)
+	{
+		return WatchBatch(FString(), { AssetPath }, TEXT("MotionForge is not available."));
+	}
+
+	if (!Forge->SelectCandidate(AssetPath, MotionId))
+	{
+		return WatchBatch(FString(), { AssetPath }, FString::Printf(
+			TEXT("'%s' has no take '%s'. Call Get Motion Status for the takes it has."), *AssetPath, *MotionId));
+	}
+
+	return DownloadAndImportSelected({ AssetPath });
+}
+
+void UMotionForgeToolset::HideTake(const FString& AssetPath, const FString& MotionId, bool Hidden)
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	if (Forge && !Forge->HideTake(AssetPath, MotionId, Hidden))
+	{
+		MotionForgeToolsetPrivate::Fail(FString::Printf(
+			TEXT("'%s' has no take '%s'. Call Get Motion Status for the takes it has."), *AssetPath, *MotionId));
+	}
+}
+
+TArray<FString> UMotionForgeToolset::GetClipUsers(const FString& AssetPath)
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	return Forge ? Forge->GetClipUsers(AssetPath) : TArray<FString>();
+}
+
+TArray<FMotionActivity> UMotionForgeToolset::GetMotionActivity()
+{
+	UMotionForgeSubsystem* Forge = MotionForgeToolsetPrivate::Subsystem();
+	return Forge ? Forge->GetActivities() : TArray<FMotionActivity>();
+}
+
+FString UMotionForgeToolset::GetToolsetVersion() const
+{
+	// The descriptor is the version. Reading it here rather than repeating it means there is no
+	// second copy to keep true - and no window, between a bump and a fix, where an agent is told
+	// a number the package does not carry.
+	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT(UE_PLUGIN_NAME));
+	return Plugin.IsValid() ? Plugin->GetDescriptor().VersionName : FString();
 }

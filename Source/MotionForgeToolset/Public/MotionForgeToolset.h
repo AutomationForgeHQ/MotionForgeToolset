@@ -32,7 +32,7 @@ class UToolCallAsyncResultCharacterUpload;
  *
  * One thing is deliberately absent: there is no tool for setting an API key. An agent that can write
  * secrets into the OS credential vault is a liability with no matching benefit, and signing in is a
- * human action performed once in Project Settings. Agents can ask whether a key exists, never set or
+ * human action performed once, on the Keys page. Agents can ask whether a key exists, never set or
  * read one.
  */
 UCLASS(BlueprintType)
@@ -42,7 +42,15 @@ class MOTIONFORGETOOLSET_API UMotionForgeToolset : public UToolsetDefinition
 
 public:
 
-	virtual FString GetToolsetVersion() const override { return TEXT("0.2.1"); }
+	/**
+	 * The version an agent is told it is talking to, read from this plugin's own descriptor.
+	 *
+	 * Defined in the .cpp deliberately. UE_PLUGIN_NAME is a private UBT definition, correct
+	 * only inside this module; a body here in a public header would resolve it to whichever
+	 * plugin included the header. Nothing in this class is a second copy of the version, so
+	 * there is nothing here that can drift from it.
+	 */
+	virtual FString GetToolsetVersion() const override;
 
 	// ---------------------------------------------------------------------------------------------
 	// Discovery
@@ -194,7 +202,8 @@ public:
 	 * Report whether a provider has a usable API key, and where it is read from.
 	 *
 	 * Never returns the key itself, and providers cannot be signed in to from here. When Configured
-	 * is false, tell the user to add the key in Project Settings rather than trying to set it.
+	 * is false, tell the user to add the key on the Keys page (Tools > Automation Forge > Keys) rather
+	 * than trying to set it.
 	 *
 	 * @param ProviderId A name from List Providers. Leave empty for the default provider.
 	 */
@@ -286,12 +295,13 @@ public:
 	static FMotionCostEstimate EstimateGenerationCost(const TArray<FMotionDefSpec>& Definitions);
 
 	/**
-	 * Report what these definitions would cost to fetch, and what regenerating them would cost.
+	 * What fetching these definitions' takes would cost - the question to ask before Download And
+	 * Import Selected or Choose And Import Take.
 	 *
-	 * Which number bills depends on the plan: Billed Seconds and Estimated Cost already account for
-	 * it, so use those rather than picking one yourself. On a subscription this is the call to make
-	 * before downloading; on pay-as-you-go downloading is free and Estimate Generation Cost is the
-	 * one that matters.
+	 * Priced by the provider that made each take, in its own unit: on a subscription fetching uses
+	 * download quota, on pay-as-you-go and on a local runner it is free. Takes already on disk are not
+	 * counted. Read Summary, Billed Seconds and Estimated Cost. What generating would cost is a
+	 * different question: Preview Motion Request answers it for a definition that exists.
 	 *
 	 * @param AssetPaths Definitions to price. Leave empty for every definition.
 	 * @param SelectedOnly True counts only chosen takes; false counts every usable take.
@@ -327,7 +337,8 @@ public:
 	 * @param Definitions What to author. Prompt and AssetName are the only fields worth setting by
 	 *        hand; the rest fall back to the plugin's configured defaults when left empty.
 	 * @param Mode Human In The Loop stops after generating so takes can be reviewed. Automatic runs
-	 *        through to an imported animation and spends download quota unattended.
+	 *        through to an imported animation unattended, and spends whatever importing costs on the
+	 *        provider - download quota on a subscription, nothing on pay as you go or a local runner.
 	 */
 	UFUNCTION(meta = (AICallable), Category = "MotionForge|Authoring")
 	static FMotionBatchSubmission CreateAndGenerateMotions(
@@ -335,13 +346,129 @@ public:
 		EMotionPipelineMode Mode);
 
 	/**
-	 * Rewrite a definition's authoring fields without touching its takes or pipeline state.
+	 * Change a definition's authoring fields without touching its takes.
 	 *
-	 * Use this to iterate on a prompt after reading the generated takes back. Generate Motions
-	 * afterwards to produce takes from the new wording.
+	 * **Only the fields you fill in change.** Leave Length and Variants at zero, and Prompt, Model Id and
+	 * Character empty, to keep what the definition has. Provider settings go in Pipeline Options by the
+	 * keys List Pipeline Options reports; a key the provider does not declare is refused and named.
+	 *
+	 * Use this to iterate on a prompt after watching the takes. Generate Motions afterwards.
 	 */
 	UFUNCTION(meta = (AICallable), Category = "MotionForge|Authoring")
 	static void UpdateMotionDefinition(const FString& AssetPath, const FMotionDefSpec& Definition);
+
+	/**
+	 * Create a motion definition without generating anything.
+	 *
+	 * The draft a person would make with New Definition: nothing is submitted and nothing is spent.
+	 * Follow with Preview Motion Request to see exactly what Generate would send and cost, then Generate
+	 * Motions. A definition of that name that already exists is updated rather than duplicated.
+	 *
+	 * @return Content path of the definition.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Authoring")
+	static FString CreateMotionDefinition(const FMotionDefSpec& Definition);
+
+	/**
+	 * Exactly what Generate would send for a definition, what it would cost, and what would stop it.
+	 *
+	 * **Call this before Generate Motions on anything that may cost money, and tell the user the Cost
+	 * Summary.** It uses the same code the submission uses: the prompt as sent, the beats and their
+	 * seconds, the length after the provider's limits, the provider's own settings by their wire names,
+	 * the character route, the seeds, and the price in the provider's own unit. Readiness says what is
+	 * missing and, in Fix Label, what a person would press to fix it.
+	 *
+	 * Costs nothing and sends nothing.
+	 *
+	 * @param AssetPath The definition's content path, as List Motion Definitions reports it.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Authoring")
+	static FMotionResolvedRequest PreviewMotionRequest(const FString& AssetPath);
+
+	/**
+	 * Move a definition to another provider.
+	 *
+	 * Each provider keeps its own settings on the definition, so switching back restores them. The
+	 * character is kept when it suits the new provider and otherwise replaced by one that does - the
+	 * returned sentence says which. Prompt, length and takes are untouched.
+	 *
+	 * @param AssetPath The definition's content path, as List Motion Definitions reports it.
+	 * @param ProviderId A name from List Providers.
+	 * @return What changed, in one sentence.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Authoring")
+	static FString SetMotionProvider(const FString& AssetPath, FName ProviderId);
+
+	/**
+	 * A provider's settings on a definition, with their current values, allowed values and ranges.
+	 *
+	 * The keys are the provider's own names - `seed`, `diffusion_steps`, `cfg_text`, `rewrite_prompt` -
+	 * and the tooltips say what each does and what it costs. Disabled Reason is set on a setting the
+	 * current combination makes meaningless.
+	 *
+	 * @param AssetPath The definition's content path, as List Motion Definitions reports it.
+	 * @param ProviderId Leave empty for the definition's own provider.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Authoring")
+	static TArray<FMotionPipelineOption> ListPipelineOptions(const FString& AssetPath, FName ProviderId);
+
+	/**
+	 * Set one of a definition's provider settings, by the key List Pipeline Options reports.
+	 *
+	 * Values are text: "812", "true", "separated". Ranges are enforced; an unknown key or a value not
+	 * in the allowed list is refused with the valid choices.
+	 *
+	 * @param AssetPath The definition's content path, as List Motion Definitions reports it.
+	 * @param Key The provider's own name for the setting, from List Pipeline Options.
+	 * @param Value The new value as text.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Authoring")
+	static void SetMotionPipelineOption(const FString& AssetPath, const FString& Key, const FString& Value);
+
+	/**
+	 * Motion Characters that suit a provider: prepared for it first, then universal ones that pass its
+	 * checks. A character prepared for another provider never suits.
+	 *
+	 * @param ProviderId A name from List Providers.
+	 * @return Content paths of the characters.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Characters")
+	static TArray<FString> FindCharactersForProvider(FName ProviderId);
+
+	/**
+	 * Each installed provider's own setup, measured: keys, access grants, Docker, the runner.
+	 *
+	 * The same rows the Get Started page shows a person. Many steps are a person's to do - accepting a
+	 * licence, installing Docker - so read Detail and relay it rather than trying to work around it.
+	 *
+	 * @param ProviderId Leave empty for every provider.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Discovery")
+	static TArray<FMotionSetupStepInfo> GetProviderSetupSteps(FName ProviderId);
+
+	/**
+	 * Show a person MotionForge in the editor: the Get Started page, or the library.
+	 *
+	 * Get Started walks a new user through each provider's setup - keys, access grants, Docker, the
+	 * runner - then a character and a first prompt, every step measured and with the button that
+	 * moves it on. Open it when somebody asks how to begin, rather than reciting the steps. Changes
+	 * nothing and spends nothing.
+	 *
+	 * @param GetStarted True for Get Started, false for the library of definitions.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Discovery")
+	static void OpenMotionForgeWindow(bool GetStarted);
+
+	/**
+	 * Resave every definition still carrying settings from before providers declared their own.
+	 *
+	 * Loading already moves them into the provider pipelines in memory; this makes it permanent. Safe to
+	 * run more than once.
+	 *
+	 * @return How many were resaved.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Authoring")
+	static int32 MigrateMotionDefinitions();
 
 	// ---------------------------------------------------------------------------------------------
 	// The prompt on a timeline
@@ -421,9 +548,12 @@ public:
 	/**
 	 * Generate takes for existing motion definitions and wait for them to finish.
 	 *
-	 * Stops once takes exist, leaving each definition awaiting review so a human can choose. Nothing
-	 * is downloaded and nothing is charged for by this call.
+	 * Stops once takes exist, leaving each definition awaiting review. **Whether this costs money depends
+	 * on the provider:** on a pay-per-generated-second plan every take bills when submitted, kept or not;
+	 * a local runner costs nothing; a rented GPU bills by the hour regardless. Call Preview Motion Request
+	 * first and tell the user its Cost Summary.
 	 *
+	 * A stopped local runner is started first rather than refused, which can take several minutes.
 	 * Definitions already generating are skipped, so calling this again after a timeout is safe.
 	 *
 	 * @return Per-definition status once the batch settles, including the take ids to choose from.
@@ -434,8 +564,9 @@ public:
 	/**
 	 * Choose which generated take a motion definition should use, by its motion id.
 	 *
-	 * Take ids come from Get Motion Status. Each has a viewer URL a human can watch for free, so
-	 * offer those rather than picking blind when the choice matters.
+	 * Take ids come from Get Motion Status. Where a provider gives a take a viewer URL a human can
+	 * watch for free, offer it rather than picking blind when the choice matters; a person can also
+	 * watch any take on the definition window's stage before choosing.
 	 */
 	UFUNCTION(meta = (AICallable), Category = "MotionForge|Pipeline")
 	static void SelectTake(const FString& AssetPath, const FString& MotionId);
@@ -443,7 +574,8 @@ public:
 	/**
 	 * Download the chosen take for each definition, normalise it and import it as an animation.
 	 *
-	 * This spends download quota. Check Estimate Download Cost first and confirm with the user.
+	 * On a subscription this spends download quota; on pay as you go and on a local runner, fetching
+	 * is free. Check Estimate Download Cost first and confirm with the user when it is not free.
 	 * Takes already on disk are not fetched again.
 	 *
 	 * @return Per-definition status once every download settles, including the imported animation.
@@ -455,20 +587,68 @@ public:
 	 * Generate, automatically take the first usable variant, download it and import it, without
 	 * stopping for review.
 	 *
-	 * This spends download quota unattended. Prefer Generate Motions followed by human review unless
-	 * the user has explicitly asked for an unattended run.
+	 * This spends unattended: every take bills on pay as you go, importing uses quota on a
+	 * subscription, and a rented GPU bills while it is up. Prefer Generate Motions followed by human
+	 * review unless the user has explicitly asked for an unattended run.
 	 */
 	UFUNCTION(meta = (AICallable), Category = "MotionForge|Pipeline")
 	static UToolCallAsyncResultMotionStatus* RunFullPipeline(const TArray<FString>& AssetPaths);
 
 	/**
-	 * Stop waiting on a batch.
+	 * Stop waiting on a batch, and free its definitions to generate again.
 	 *
-	 * Jobs already submitted keep running and their takes remain retrievable, so nothing paid for is
-	 * lost - only the waiting stops.
+	 * A definition with a finished take goes to Awaiting Review; one with none goes to Failed with the
+	 * reason. Jobs already submitted may still finish on the provider - and on a paid one, still bill.
 	 */
 	UFUNCTION(meta = (AICallable), Category = "MotionForge|Pipeline")
 	static void CancelBatch(const FString& BatchId);
+
+	/**
+	 * Stop waiting on one definition's generation, wherever it is. Same settling as Cancel Batch.
+	 *
+	 * @param AssetPath The definition's content path, as List Motion Definitions reports it.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Pipeline")
+	static void CancelMotionDefinition(const FString& AssetPath);
+
+	/**
+	 * Choose a take and import it, in one step - the same verb a person presses.
+	 *
+	 * **Replaces the definition's clip.** Call Get Clip Users first; when it names anything, tell the user
+	 * what will change before doing this. Importing is free on a local runner and on pay as you go; on a
+	 * subscription it uses download quota unless the take is already on disk.
+	 *
+	 * @param AssetPath The definition's content path, as List Motion Definitions reports it.
+	 * @param MotionId The take's id, as Get Motion Status reports it.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Pipeline")
+	static UToolCallAsyncResultMotionStatus* ChooseAndImportTake(const FString& AssetPath, const FString& MotionId);
+
+	/**
+	 * Hide a take from the list, or bring it back. Takes are never deleted: some cannot be made again.
+	 *
+	 * @param AssetPath The definition's content path, as List Motion Definitions reports it.
+	 * @param MotionId The take's id, as Get Motion Status reports it.
+	 * @param Hidden True to hide, false to show it again.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Pipeline")
+	static void HideTake(const FString& AssetPath, const FString& MotionId, bool Hidden);
+
+	/**
+	 * The montages, sequences and other assets that use a definition's imported clip.
+	 *
+	 * @param AssetPath The definition's content path, as List Motion Definitions reports it.
+	 * @return Content paths of the assets. Empty when nothing uses it, or it has no clip.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Pipeline")
+	static TArray<FString> GetClipUsers(const FString& AssetPath);
+
+	/**
+	 * What is running now: one row per definition, with what it is doing, how long it has taken, and
+	 * whether it is past its timeout. Includes a runner being started and a clip being imported.
+	 */
+	UFUNCTION(meta = (AICallable), Category = "MotionForge|Pipeline")
+	static TArray<FMotionActivity> GetMotionActivity();
 
 private:
 

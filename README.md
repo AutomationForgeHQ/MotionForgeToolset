@@ -53,10 +53,12 @@ static FMotionBatchSubmission CreateAndGenerateMotions(
 
 ### 2. Skill — `UMotionForgeSkill`
 
-A native `UAgentSkill`. It carries what no signature can express: **which way round the billing goes**,
-because pay-as-you-go bills generated seconds while a subscription bills downloads, and getting it
-backwards costs real money — and that these models pad an underspecified prompt out to their minimum
-clip length. Short and deliberately free of tool and property names, which rot.
+A native `UAgentSkill`. It carries what no signature can express: **each provider's facts for that
+provider** — a local runner is free and a rented GPU bills by the hour, while a hosted provider bills
+generated seconds on pay as you go or downloads on a subscription — that every Generate a person
+starts stops at review, how each provider's own settings are set, where poses come from, and what a
+first-time user needs before anything generates. Short and deliberately free of tool and property
+names, which rot.
 
 ### 3. Examples
 
@@ -68,7 +70,7 @@ readable through `GetMotionStatus`, so discovery needs no new tool.
 
 ## Tools
 
-All 28, grouped the way their `Category` metadata groups them in the MCP client.
+All <!-- forge:tools -->42 tools<!-- /forge:tools -->, grouped the way their `Category` metadata groups them in the MCP client.
 
 **Discovery**
 
@@ -84,6 +86,8 @@ All 28, grouped the way their `Category` metadata groups them in the MCP client.
 | `GetProviderCapabilities` | `FMotionProviderCaps` | Frame rate, clip limits, billing and seed support per provider |
 | `GetCredentialStatus` | `FMotionCredentialInfo` | Whether a key exists — never its value |
 | `TestProviderConnection` | **async** string | One cheap authenticated call; costs nothing |
+| `GetProviderSetupSteps` | `TArray<FMotionSetupStepInfo>` | Each installed provider's own setup, measured: keys, access grants, Docker, the runner |
+| `OpenMotionForgeWindow` | — | Show a person MotionForge in the editor: the Get started page, or the library |
 
 **Output**
 
@@ -99,6 +103,7 @@ All 28, grouped the way their `Category` metadata groups them in the MCP client.
 | `ListProviderCharacters` | **async** `TArray<FMotionRemoteCharacter>` | What the account already holds |
 | `UploadCharacterToProvider` | **async** `FMotionCharacterUpload` | Export + upload + pair, in one call |
 | `ImportProviderCharacterRig` | **async** string | Fetch the paired, provider-normalised rig back into the project for retargeting |
+| `FindCharactersForProvider` | `TArray<FString>` | Motion Characters that suit a provider: prepared for it first, then universal ones that pass its checks |
 
 **Cost**
 
@@ -112,7 +117,13 @@ All 28, grouped the way their `Category` metadata groups them in the MCP client.
 | Tool | Returns | |
 |---|---|---|
 | `CreateAndGenerateMotions` | `FMotionBatchSubmission` | Author a library and start it |
-| `UpdateMotionDefinition` | — | Reword a prompt without losing takes |
+| `UpdateMotionDefinition` | — | Reword a prompt without losing takes; only the fields you set change |
+| `CreateMotionDefinition` | `FString` | A definition, without generating anything |
+| `PreviewMotionRequest` | `FMotionResolvedRequest` | Exactly what Generate would send, what it would cost, and what would stop it |
+| `SetMotionProvider` | `FString` | Move a definition to another provider |
+| `ListPipelineOptions` | `TArray<FMotionPipelineOption>` | A provider's settings on a definition, with current values, allowed values and ranges |
+| `SetMotionPipelineOption` | — | Set one provider setting, by the key List Pipeline Options reports |
+| `MigrateMotionDefinitions` | `int32` | Resave every definition still carrying settings from before providers declared their own |
 
 **Prompt — the prompt on a timeline**
 
@@ -132,6 +143,11 @@ All 28, grouped the way their `Category` metadata groups them in the MCP client.
 | `DownloadAndImportSelected` | **async** status | Fetch, normalise, import |
 | `RunFullPipeline` | **async** status | Unattended end to end |
 | `CancelBatch` | — | Stop waiting; jobs keep running |
+| `ChooseAndImportTake` | **async** status | Choose a take and import it in one step — it replaces the clip, so call Get Clip Users first |
+| `HideTake` | — | Hide a take from the list, or bring it back. Takes are never deleted |
+| `GetClipUsers` | `TArray<FString>` | The montages, sequences and other assets that use a definition's imported clip |
+| `CancelMotionDefinition` | — | Stop waiting on one definition's generation, wherever it is |
+| `GetMotionActivity` | `TArray<FMotionActivity>` | What is running now, per definition, and whether it is past its timeout |
 
 ### Errors are raised, not returned
 

@@ -17,6 +17,13 @@ public class MotionForgeToolset : ModuleRules
 			}
 			);
 
+		PrivateDependencyModuleNames.AddRange(
+			new string[]
+			{
+				"Projects",         // IPluginManager, so GetToolsetVersion() reads the descriptor
+			}
+			);
+
 		// Deliberately no dependency on ModelContextProtocol itself. Tools are registered with
 		// ToolsetRegistry, and MCP picks them up from there - going direct would couple this module
 		// to a transport it does not care about.
