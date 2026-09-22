@@ -4,7 +4,10 @@ Exposes [MotionForge](https://github.com/AutomationForgeHQ/MotionForge) as nativ
 can author motion definitions, generate, review, download and import without a human driving the
 editor.
 
-**Status: 0.2 — verified live on the documented subset below.** The toolset registers as
+<!-- forge:version -->**Version 0.3.0. Experimental.**<!-- /forge:version -->
+
+**Verified live in 0.2 on the documented subset below; the tools added in 0.3.0 have not been
+verified live yet.** The toolset registers as
 `MotionForgeToolset.MotionForgeToolset` and `UMotionForgeSkill` is listed by
 `AgentSkillToolset.ListSkills`. Connection test, character upload and pairing, generation, polling,
 download and import have all been driven through these tools against a live Uthana account, producing
@@ -178,7 +181,7 @@ still be running provider-side, and nothing paid for is lost.
 ## Two deliberate omissions
 
 **No tool sets an API key.** An agent that can write secrets into the OS credential vault is a
-liability with no matching benefit. Signing in is a human action, done once, in Project Settings.
+liability with no matching benefit. Entering a key is a human action, done once, on the Keys page.
 Agents can ask whether a key exists; they can neither read nor set one.
 
 **No tool deletes anything.** Candidates are never pruned by MotionForge because providers without a
