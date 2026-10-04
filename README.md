@@ -4,7 +4,7 @@ Exposes [MotionForge](https://github.com/AutomationForgeHQ/MotionForge) as nativ
 can author motion definitions, generate, review, download and import without a human driving the
 editor.
 
-<!-- forge:version -->**Version 0.3.0. Experimental.**<!-- /forge:version -->
+<!-- forge:version -->**Version 0.3.1. Experimental.**<!-- /forge:version -->
 
 **Verified live in 0.2 on the documented subset below; the tools added in 0.3.0 have not been
 verified live yet.** The toolset registers as
